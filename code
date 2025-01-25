@@ -1,0 +1,101 @@
+#!/bin/bash
+
+# Automated Port Scanner
+# Description: Scans open ports on a given host using Nmap or Netcat and flags potential vulnerabilities.
+# Requirements: nmap, netcat (nc), awk
+# Author: Your Name
+
+# Configuration
+DEFAULT_HOST="127.0.0.1"  # Default target IP if none provided
+DEFAULT_PORT_RANGE="1-1000"  # Common port range
+LOG_FILE="port_scan.log"
+VULNERABLE_SERVICES=("ftp" "ssh" "telnet" "smtp" "http" "https" "rdp" "mysql" "mssql")
+
+# Function to perform Nmap scan
+nmap_scan() {
+    local target_host="$1"
+    local ports="$2"
+
+    echo "Starting Nmap scan on $target_host (Ports: $ports)..."
+    nmap -p "$ports" -sV --open "$target_host" -oG - | awk '/open/{print $2, $3, $4}' > scan_results.txt
+
+    if [[ -s scan_results.txt ]]; then
+        echo "Open ports found on $target_host:"
+        cat scan_results.txt
+    else
+        echo "No open ports found on $target_host."
+    fi
+
+    echo "$(date) - Scanned $target_host with ports $ports" >> "$LOG_FILE"
+}
+
+# Function to perform Netcat scan
+netcat_scan() {
+    local target_host="$1"
+    local ports="$2"
+
+    echo "Starting Netcat scan on $target_host (Ports: $ports)..."
+    touch scan_results.txt
+    for port in $(seq $(echo "$ports" | tr '-' ' ')); do
+        (echo > /dev/tcp/"$target_host"/"$port") 2>/dev/null && echo "Port $port is open" >> scan_results.txt
+    done
+
+    if [[ -s scan_results.txt ]]; then
+        echo "Open ports found on $target_host:"
+        cat scan_results.txt
+    else
+        echo "No open ports found on $target_host."
+    fi
+
+    echo "$(date) - Scanned $target_host with ports $ports using Netcat" >> "$LOG_FILE"
+}
+
+# Function to analyze scan results for vulnerable services
+analyze_results() {
+    echo "Analyzing scan results for known vulnerabilities..."
+    for service in "${VULNERABLE_SERVICES[@]}"; do
+        if grep -qi "$service" scan_results.txt; then
+            echo "[WARNING] Potential vulnerable service detected: $service"
+        fi
+    done
+}
+
+# Function to prompt user for input
+get_target_info() {
+    read -p "Enter target IP or domain (default: $DEFAULT_HOST): " target_host
+    target_host=${target_host:-$DEFAULT_HOST}
+
+    read -p "Enter port range to scan (default: $DEFAULT_PORT_RANGE): " port_range
+    port_range=${port_range:-$DEFAULT_PORT_RANGE}
+}
+
+# Function to select scanning method
+select_scan_method() {
+    echo "Select scanning method:"
+    echo "1) Nmap (recommended)"
+    echo "2) Netcat (basic TCP check)"
+    read -p "Enter your choice (1/2): " choice
+
+    case $choice in
+        1) SCAN_METHOD="nmap";;
+        2) SCAN_METHOD="netcat";;
+        *) echo "Invalid choice, defaulting to Nmap"; SCAN_METHOD="nmap";;
+    esac
+}
+
+# Main Execution
+echo "=============================="
+echo "      Automated Port Scanner"
+echo "=============================="
+get_target_info
+select_scan_method
+
+if [[ "$SCAN_METHOD" == "nmap" ]]; then
+    nmap_scan "$target_host" "$port_range"
+elif [[ "$SCAN_METHOD" == "netcat" ]]; then
+    netcat_scan "$target_host" "$port_range"
+fi
+
+analyze_results
+
+echo "Scan completed. Results saved in $LOG_FILE."
